@@ -1,7 +1,6 @@
-import type { Metadata } from "next"
 import { notFound } from "next/navigation"
-import { getInvoice } from "@/lib/btcpay-api"
-import { InvoiceDetails } from "@/components/invoice-details"
+import InvoiceDetails from "@/components/invoice-details"
+import { getInvoice } from "@/lib/btcpay"
 
 interface InvoicePageProps {
   params: {
@@ -9,31 +8,23 @@ interface InvoicePageProps {
   }
 }
 
-export async function generateMetadata({ params }: InvoicePageProps): Promise<Metadata> {
-  try {
-    const invoice = await getInvoice(params.id)
-    return {
-      title: `Invoice #${params.id.substring(0, 8)} - BTCPay Demo`,
-      description: invoice.description || "Bitcoin payment invoice",
-    }
-  } catch (error) {
-    return {
-      title: "Invoice Not Found - BTCPay Demo",
-      description: "The requested invoice could not be found",
-    }
-  }
-}
-
 export default async function InvoicePage({ params }: InvoicePageProps) {
+  const { id } = params
+
   try {
-    const invoice = await getInvoice(params.id)
+    const invoice = await getInvoice(id)
 
     return (
-      <main className="container mx-auto py-10 px-4">
-        <InvoiceDetails invoice={invoice} />
+      <main className="container mx-auto px-4 py-8">
+        <div className="max-w-6xl mx-auto">
+          <div className="flex items-center justify-center min-h-[70vh]">
+            <InvoiceDetails invoiceId={id} initialInvoice={invoice} />
+          </div>
+        </div>
       </main>
     )
   } catch (error) {
+    console.error(`Error fetching invoice ${id}:`, error)
     notFound()
   }
 }

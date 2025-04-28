@@ -1,185 +1,182 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState, useEffect } from "react"
+import Image from "next/image"
 import Link from "next/link"
-import { formatDistanceToNow } from "date-fns"
-import { ArrowLeft, Bitcoin, CheckCircle, Clock, Copy, ExternalLink, QrCode } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
-import { toast } from "@/components/ui/use-toast"
-import type { Invoice } from "@/lib/types"
-import { checkInvoiceStatus } from "@/lib/btcpay-api"
+import { Loader2, ExternalLink, Check, XCircle, RefreshCw } from "lucide-react"
 
 interface InvoiceDetailsProps {
-  invoice: Invoice
+  invoiceId: string
+  initialInvoice: any
 }
 
-export function InvoiceDetails({ invoice: initialInvoice }: InvoiceDetailsProps) {
-  const [invoice, setInvoice] = useState<Invoice>(initialInvoice)
-  const [isPolling, setIsPolling] = useState(false)
+export default function InvoiceDetails({ invoiceId, initialInvoice }: InvoiceDetailsProps) {
+  const [invoice, setInvoice] = useState(initialInvoice)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
 
-  // Start polling for invoice status updates if the invoice is not settled
-  useEffect(() => {
-    if (["new", "processing", "unconfirmed"].includes(invoice.status.toLowerCase())) {
-      setIsPolling(true)
+  const checkPaymentStatus = async () => {
+    setLoading(true)
+    setError("")
 
-      const intervalId = setInterval(async () => {
-        try {
-          const updatedInvoice = await checkInvoiceStatus(invoice.id)
-          setInvoice(updatedInvoice)
+    try {
+      const response = await fetch(`/api/check-payment/${invoiceId}`)
 
-          // If the invoice is settled or expired, stop polling
-          if (["settled", "complete", "paid", "expired", "invalid"].includes(updatedInvoice.status.toLowerCase())) {
-            setIsPolling(false)
-            clearInterval(intervalId)
+      if (!response.ok) {
+        throw new Error("Failed to check payment status")
+      }
 
-            if (["settled", "complete", "paid"].includes(updatedInvoice.status.toLowerCase())) {
-              toast({
-                title: "Payment received!",
-                description: "Your Bitcoin payment has been successfully received.",
-                variant: "success",
-              })
-            }
-          }
-        } catch (error) {
-          console.error("Error checking invoice status:", error)
-        }
-      }, 5000) // Check every 5 seconds
-
-      return () => clearInterval(intervalId)
+      const status = await response.json()
+      setInvoice({ ...invoice, ...status })
+    } catch (err) {
+      console.error("Error checking payment status:", err)
+      setError("Failed to update payment status")
+    } finally {
+      setLoading(false)
     }
-  }, [invoice.id, invoice.status])
-
-  const copyToClipboard = (text: string, label: string) => {
-    navigator.clipboard.writeText(text)
-    toast({
-      title: "Copied!",
-      description: `${label} copied to clipboard`,
-    })
   }
 
-  const getStatusColor = () => {
-    const status = invoice.status.toLowerCase()
-    if (["settled", "complete", "paid"].includes(status)) return "text-green-500"
-    if (["expired", "invalid"].includes(status)) return "text-destructive"
-    return "text-amber-500"
-  }
+  // Auto-refresh status every 30 seconds
+  useEffect(() => {
+    if (invoice.status !== "Settled" && invoice.status !== "Expired") {
+      const interval = setInterval(checkPaymentStatus, 30000)
+      return () => clearInterval(interval)
+    }
+  }, [invoice.status, invoiceId])
 
-  const getStatusIcon = () => {
-    const status = invoice.status.toLowerCase()
-    if (["settled", "complete", "paid"].includes(status)) return <CheckCircle className="h-5 w-5 text-green-500" />
-    if (["expired", "invalid"].includes(status)) return <ExternalLink className="h-5 w-5 text-destructive" />
-    return <Clock className="h-5 w-5 text-amber-500" />
+  const getStatusBadge = () => {
+    switch (invoice.status) {
+      case "New":
+        return (
+          <Badge variant="outline" className="bg-yellow-100 text-yellow-800">
+            Awaiting Payment
+          </Badge>
+        )
+      case "Processing":
+        return (
+          <Badge variant="outline" className="bg-blue-100 text-blue-800">
+            Processing
+          </Badge>
+        )
+      case "Settled":
+        return (
+          <Badge variant="outline" className="bg-green-100 text-green-800">
+            Paid
+          </Badge>
+        )
+      case "Expired":
+        return (
+          <Badge variant="outline" className="bg-red-100 text-red-800">
+            Expired
+          </Badge>
+        )
+      default:
+        return <Badge variant="outline">{invoice.status}</Badge>
+    }
   }
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <div className="mb-6">
-        <Link href="/" className="flex items-center text-sm text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="mr-1 h-4 w-4" />
-          Back to dashboard
-        </Link>
-      </div>
+    <Card className="w-full max-w-lg">
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between">
+          <span>Invoice #{invoice.id?.substring(0, 8)}</span>
+          {getStatusBadge()}
+        </CardTitle>
+        <CardDescription>Created on {new Date(invoice.createdTime).toLocaleString()}</CardDescription>
+      </CardHeader>
 
-      <Card className="mb-6">
-        <CardHeader>
-          <div className="flex justify-between items-start">
-            <div>
-              <CardTitle className="text-2xl">Invoice #{invoice.id.substring(0, 8)}</CardTitle>
-              <CardDescription>
-                Created {formatDistanceToNow(new Date(invoice.createdTime), { addSuffix: true })}
-              </CardDescription>
-            </div>
-            <Badge className={getStatusColor()}>
-              <span className="flex items-center">
-                {getStatusIcon()}
-                <span className="ml-1">{invoice.status}</span>
-              </span>
-            </Badge>
-          </div>
-        </CardHeader>
+      <CardContent className="space-y-4">
+        {error && <p className="text-sm text-red-500">{error}</p>}
 
-        <CardContent className="space-y-6">
-          <div>
-            <h3 className="text-sm font-medium text-muted-foreground mb-1">Description</h3>
-            <p>{invoice.description || "No description provided"}</p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <h3 className="text-sm font-medium text-muted-foreground mb-1">Amount</h3>
-              <p className="text-xl font-semibold">
-                {invoice.amount} {invoice.currency}
-              </p>
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-muted-foreground mb-1">Bitcoin Amount</h3>
-              <p className="text-xl font-semibold flex items-center">
-                <Bitcoin className="h-4 w-4 mr-1" />
-                {invoice.btcAmount || "0.00000000"} BTC
-              </p>
-            </div>
-          </div>
-
-          <Separator />
-
-          {invoice.paymentLink && (
-            <div className="bg-muted p-4 rounded-lg">
-              <div className="flex justify-between items-center mb-2">
-                <h3 className="font-medium">Payment Details</h3>
-                {isPolling && (
-                  <Badge variant="outline" className="animate-pulse">
-                    <Clock className="h-3 w-3 mr-1" />
-                    Waiting for payment...
-                  </Badge>
-                )}
+        <div className="flex flex-col items-center space-y-4">
+          {invoice.status === "Settled" ? (
+            <div className="flex flex-col items-center space-y-2">
+              <div className="h-40 w-40 rounded-full bg-green-100 flex items-center justify-center">
+                <Check className="h-20 w-20 text-green-500" />
               </div>
-
-              <div className="flex justify-center mb-4">
-                <div className="bg-white p-2 rounded">
-                  <QrCode className="h-32 w-32" />
-                </div>
+              <p className="text-xl font-medium">Payment Received!</p>
+            </div>
+          ) : invoice.status === "Expired" ? (
+            <div className="flex flex-col items-center space-y-2">
+              <div className="h-40 w-40 rounded-full bg-red-100 flex items-center justify-center">
+                <XCircle className="h-20 w-20 text-red-500" />
               </div>
-
-              {invoice.bitcoinAddress && (
-                <div className="mb-2">
-                  <h4 className="text-xs text-muted-foreground mb-1">Bitcoin Address</h4>
-                  <div className="flex items-center">
-                    <code className="bg-background p-2 rounded text-xs flex-1 overflow-x-auto">
-                      {invoice.bitcoinAddress}
-                    </code>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="ml-2"
-                      onClick={() => copyToClipboard(invoice.bitcoinAddress!, "Bitcoin address")}
-                    >
-                      <Copy className="h-4 w-4" />
-                    </Button>
-                  </div>
+              <p className="text-xl font-medium">Invoice Expired</p>
+            </div>
+          ) : (
+            <>
+              {invoice.checkoutLink && (
+                <div className="flex flex-col items-center space-y-2">
+                  <Image
+                    src={`${invoice.checkoutLink}/qr`}
+                    alt="Bitcoin Payment QR Code"
+                    width={200}
+                    height={200}
+                    className="border p-2 rounded-lg"
+                  />
+                  <p className="text-sm text-center max-w-xs">
+                    Scan this QR code with your Bitcoin wallet or click the button below to pay
+                  </p>
                 </div>
               )}
 
-              <div>
-                <Button
-                  variant="outline"
-                  className="w-full mt-2"
-                  onClick={() => window.open(invoice.paymentLink, "_blank")}
-                >
-                  <ExternalLink className="h-4 w-4 mr-2" />
-                  Open in Wallet
-                </Button>
+              <div className="space-y-2 text-center">
+                <p className="text-2xl font-bold">
+                  {invoice.amount} {invoice.currency}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Invoice expires in{" "}
+                  {invoice.expirationTime
+                    ? new Date(new Date(invoice.expirationTime).getTime() - new Date().getTime()).getMinutes()
+                    : "15"}{" "}
+                  minutes
+                </p>
               </div>
-            </div>
+            </>
           )}
-        </CardContent>
+        </div>
+      </CardContent>
 
-        <CardFooter>
-          <p className="text-xs text-muted-foreground">Powered by BTCPay Server Greenfield API</p>
-        </CardFooter>
-      </Card>
-    </div>
+      <CardFooter className="flex flex-col space-y-2">
+        {invoice.status !== "Settled" && invoice.status !== "Expired" && (
+          <>
+            {invoice.checkoutLink && (
+              <Button className="w-full" variant="default" asChild>
+                <Link
+                  href={invoice.checkoutLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2"
+                >
+                  <span>Pay with BTCPay</span>
+                  <ExternalLink className="h-4 w-4" />
+                </Link>
+              </Button>
+            )}
+
+            <Button variant="outline" className="w-full" onClick={checkPaymentStatus} disabled={loading}>
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Checking Status...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Check Payment Status
+                </>
+              )}
+            </Button>
+          </>
+        )}
+
+        <Button variant="outline" className="w-full" asChild>
+          <Link href="/">Return to Store</Link>
+        </Button>
+      </CardFooter>
+    </Card>
   )
 }
